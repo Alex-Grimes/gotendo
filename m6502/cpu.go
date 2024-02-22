@@ -85,8 +85,8 @@ type M6502 struct {
 }
 
 func newM6502(mem Memory) *M6502 {
-	Instructions := NewInstructionTable()
-	Instructions.InitInstructions()
+	instructions := NewInstructionTable()
+	instructions.InitInstructions()
 	return &M6502{
 		decode:       decode{},
 		Registers:    NewRegisters(),
@@ -154,4 +154,13 @@ func (cpu *M6502) PerformInterrupts() (cycles uint16) {
 		cycles = 0
 	}
 	return
+}
+
+// TODO Build Loader
+func (cpu *M6502) load() {
+	return
+}
+
+func (cpu *M6502) Lda(address uint16) {
+	cpu.load(address, &cpu.Registers.Accumulator)
 }
