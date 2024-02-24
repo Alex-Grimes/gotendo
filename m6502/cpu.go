@@ -44,12 +44,17 @@ func (reg *Registers) Reset() {
 type decode struct {
 	enable      bool
 	pc          uint16
-	opCode      OpCode
+	opcode      OpCode
 	args        string
 	mnemonic    string
 	decodedArgs string
 	registers   string
 	ticks       uint64
+}
+
+func (d *decode) String() string {
+	return fmt.Sprintf("%04X  %02X %-5s %4s %-26s  %25s",
+		d.pc, d.opcode, d.args, d.mnemonic, d.decodedArgs, d.registers)
 }
 
 type Interrupt uint8
@@ -148,13 +153,189 @@ func (cpu *M6502) PerformInterrupts() (cycles uint16) {
 		cpu.PerformNmi()
 		cpu.Nmi = false
 	case cpu.Rst:
-		cpu.performRst()
+		cpu.PerformRst()
 		cpu.Rst = false
 	default:
 		cycles = 0
 	}
 	return
 }
+
+func (cpu *M6502) push(value uint8) {
+	cpu.Memory.Store(0x0100|uint16(cpu.Registers.StackPtr), value)
+	cpu.Registers.StackPtr--
+}
+
+func (cpu *M6502) push16(value uint16) {
+	cpu.push(uint8(value >> 8))
+	cpu.push(uint8(value))
+}
+
+func (cpu *M6502) pull() (value uint8) {
+	cpu.Registers.StackPtr++
+	value = cpu.Memory.Fetch(0x0100 | uint16(cpu.Registers.StackPtr))
+	return
+}
+
+func (cpu *M6502) pull16() (value uint16) {
+	low := cpu.pull()
+	high := cpu.pull()
+
+	value = (uint16(high) << 8) | uint16(low)
+	return
+}
+
+func (cpu *M6502) PerformIrq() {
+	cpu.push16(cpu.Registers.ProgramCounter)
+	cpu.push(uint8((cpu.Registers.ProcStatus | Unused) & ^BreakCmd))
+
+	cpu.Registers.ProcStatus |= InterruptDisable
+
+	low := cpu.Memory.Fetch(0xfffe)
+	high := cpu.Memory.Fetch(0xffff)
+
+	cpu.Registers.ProgramCounter = (uint16(high) << 8) | uint16(low)
+}
+
+func (cpu *M6502) PerformNmi() {
+	cpu.push16(cpu.Registers.ProgramCounter)
+	cpu.push(uint8((cpu.Registers.ProcStatus | Unused) & ^BreakCmd))
+
+	cpu.Registers.ProcStatus |= InterruptDisable
+
+	low := cpu.Memory.Fetch(0xfffa)
+	high := cpu.Memory.Fetch(0xfffb)
+
+	cpu.Registers.ProgramCounter = (uint16(high) << 8) | uint16(low)
+}
+
+func (cpu *M6502) PerformRst() {
+	low := cpu.Memory.Fetch(0xfffc)
+	high := cpu.Memory.Fetch(0xfffd)
+
+	cpu.Registers.ProgramCounter = (uint16(high) << 8) | uint16(low)
+}
+
+func (cpu *M6502) DisableDecimalMode() {
+	cpu.decimalMode = false
+}
+
+func (cpu *M6502) EnableDecode() {
+	cpu.decode.enable = true
+}
+
+func (cpu *M6502) ToggleDecode() bool {
+	cpu.decode.enable = !cpu.decode.enable
+	return cpu.decode.enable
+}
+
+type BadOpCodeError OpCode
+
+func (b BadOpCodeError) Error() string {
+	return fmt.Sprintf("No such opcode %#02x", OpCode(b))
+}
+
+type BrkOpCodeError OpCode
+
+func (b BrkOpCodeError) Error() string {
+	return fmt.Sprintf("Executed BRK opcode")
+}
+
+func (cpu *M6502) Execute() (cycles uint16, error error) {
+	cycles += cpu.PerformInterrupts()
+
+	opcode := OpCode(cpu.Memory.Fetch(cpu.Registers.ProgramCounter))
+	inst := cpu.Instructions.opcodes[opcode]
+
+	if inst == nil {
+		return 0, BadOpCodeError(opcode)
+	}
+
+	if cpu.decode.enable {
+		cpu.decode.pc = cpu.Registers.ProgramCounter
+		cpu.decode.opcode = opcode
+		cpu.decode.args = ""
+		cpu.decode.mnemonic = inst.Mnemonic
+		cpu.decode.decodedArgs = ""
+		cpu.decode.registers = cpu.Registers.String()
+	}
+
+	cpu.Registers.ProgramCounter++
+	cycles += cpu.Instructions.Excute(cpu, opcode)
+
+	if cpu.decode.enable {
+		fmt.Println(cpu.decode.String())
+	}
+
+	if cpu.breakError && opcode == 0x00 {
+		return cycles, BrkOpCodeError(opcode)
+	}
+
+	return cycles, nil
+}
+
+func (cpu *M6502) Run() (err error) {
+	for {
+		if _, err = cpu.Execute(); err != nil {
+			return
+		}
+	}
+}
+
+func (cpu *M6502) setZFlag(value uint8) uint8 {
+	if value == 0 {
+		cpu.Registers.ProcStatus |= ZeroFlag
+	} else {
+		cpu.Registers.ProcStatus &= ^ZeroFlag
+	}
+
+	return value
+}
+
+func (cpu *M6502) setNFlag(value uint8) uint8 {
+	cpu.Registers.ProcStatus = (cpu.Registers.ProcStatus & ^NegativeFlag) | Status(value&uint8(NegativeFlag))
+	return value
+}
+
+func (cpu *M6502) setZNFlags(value uint8) uint8 {
+	cpu.setZFlag(value)
+	cpu.setNFlag(value)
+	return value
+}
+
+func (cpu *M6502) setCFlagAddition(value uint16) uint16 {
+	cpu.Registers.ProcStatus = (cpu.Registers.ProcStatus & ^CarryFlag) | Status(value>>8&uint16(CarryFlag))
+	return value
+}
+
+func (cpu *M6502) setVFlagAddition(term1 uint16, term2 uint16, result uint16) uint16 {
+	cpu.Registers.ProcStatus = (cpu.Registers.ProcStatus & ^OverflowFlag) | Status((^(term1^term2)&(term1^result)&uint16(NegativeFlag))>>1)
+	return result
+}
+
+func (cpu *M6502) immidiateAddress() (result uint16) {
+  result = cpu.Registers.ProgramCounter
+  cpu.Registers.ProgramCounter++
+
+  if cpu.decode.enable {
+    value := cpu.Memory.Fetch(result)
+    cpu.decode.args = fmt.Sprintf("%02X", value)
+    cpu.decode.decodedArgs = fmt.Sprintf(("#$"), a ...any)
+  }
+}
+
+func (cpu *M6502) zeroPageAddress() (result uint16){
+  result = uint16(cpu.Memory.Fetch(cpu.Registers.ProgramCounter))
+  cpu.Registers.ProgramCounter++
+
+  if cpu.decode.enable {
+    cpu.decode.args = fmt.Sprintf("%02X", result)
+    cpu.decode.decodedArgs = fmt.Sprintf("$%02X", result)
+  }
+  return
+}
+
+
 
 // TODO Build Loader
 func (cpu *M6502) load() {
@@ -163,4 +344,13 @@ func (cpu *M6502) load() {
 
 func (cpu *M6502) Lda(address uint16) {
 	cpu.load(address, &cpu.Registers.Accumulator)
+}
+
+func (cpu *M6502) controlAddress(opcode OpCode, status *InstructionStatus) (address uint16) {
+	if opcode&0x10 == 0 {
+		switch (opcode >> 2) & 0x03 {
+		case 0x00:
+			address = cpu.immedita
+		}
+	}
 }
