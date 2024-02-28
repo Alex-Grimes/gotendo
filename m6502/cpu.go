@@ -314,28 +314,52 @@ func (cpu *M6502) setVFlagAddition(term1 uint16, term2 uint16, result uint16) ui
 }
 
 func (cpu *M6502) immidiateAddress() (result uint16) {
-  result = cpu.Registers.ProgramCounter
-  cpu.Registers.ProgramCounter++
+	result = cpu.Registers.ProgramCounter
+	cpu.Registers.ProgramCounter++
 
-  if cpu.decode.enable {
-    value := cpu.Memory.Fetch(result)
-    cpu.decode.args = fmt.Sprintf("%02X", value)
-    cpu.decode.decodedArgs = fmt.Sprintf(("#$"), a ...any)
-  }
+	if cpu.decode.enable {
+		value := cpu.Memory.Fetch(result)
+		cpu.decode.args = fmt.Sprintf("%02X", value)
+		cpu.decode.decodedArgs = fmt.Sprintf("#$")
+	}
+	return
 }
 
-func (cpu *M6502) zeroPageAddress() (result uint16){
-  result = uint16(cpu.Memory.Fetch(cpu.Registers.ProgramCounter))
-  cpu.Registers.ProgramCounter++
+func (cpu *M6502) IndexToRegister(which Index) uint8 {
+	var index uint8
 
-  if cpu.decode.enable {
-    cpu.decode.args = fmt.Sprintf("%02X", result)
-    cpu.decode.decodedArgs = fmt.Sprintf("$%02X", result)
-  }
-  return
+	switch which {
+	case X:
+		index = cpu.Registers.IndexX
+
+	case Y:
+		index = cpu.Registers.IndexY
+	}
+	return index
 }
 
+func (cpu *M6502) zeroPageAddress() (result uint16) {
+	result = uint16(cpu.Memory.Fetch(cpu.Registers.ProgramCounter))
+	cpu.Registers.ProgramCounter++
 
+	if cpu.decode.enable {
+		cpu.decode.args = fmt.Sprintf("%02X", result)
+		cpu.decode.decodedArgs = fmt.Sprintf("$%02X", result)
+	}
+	return
+}
+
+func (cpu *M6502) zeroPageIndexedAddress(index Index) (result uint16) {
+	value := cpu.Memory.Fetch(cpu.Registers.ProgramCounter)
+	result = uint16(value + cpu.IndexToRegister(index))
+	cpu.Registers.ProgramCounter++
+
+	if cpu.decode.enable {
+		cpu.decode.args = fmt.Sprintf("$%02X", value)
+		cpu.decode.decodedArgs = fmt.Sprintf("$%02X,%s @ %02X", value, index.String(), result)
+	}
+	return
+}
 
 // TODO Build Loader
 func (cpu *M6502) load() {
@@ -350,7 +374,7 @@ func (cpu *M6502) controlAddress(opcode OpCode, status *InstructionStatus) (addr
 	if opcode&0x10 == 0 {
 		switch (opcode >> 2) & 0x03 {
 		case 0x00:
-			address = cpu.immedita
+			address = 
 		}
 	}
 }
