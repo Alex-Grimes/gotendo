@@ -374,7 +374,14 @@ func (cpu *M6502) controlAddress(opcode OpCode, status *InstructionStatus) (addr
 	if opcode&0x10 == 0 {
 		switch (opcode >> 2) & 0x03 {
 		case 0x00:
-			address = 
+			address = cpu.immidiateAddress()
+		case 0x01:
+			address = cpu.zeroPageAddress()
+		case 0x02:
+			address = 0 // Unused
+		case 0x03:
+			address = cpu.absoluteAddress()
+
 		}
 	}
 }
