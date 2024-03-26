@@ -366,6 +366,20 @@ func (cpu *M6502) load() {
 	return
 }
 
+func (cpu *M6502) absoluteAddress() (result uint16) {
+	low := cpu.Memory.Fetch(cpu.Registers.ProgramCounter)
+	high := cpu.Memory.Fetch(cpu.Registers.ProgramCounter + 1)
+	cpu.Registers.ProgramCounter += 2
+
+	result = uint16(high)<<8 | uint16(low)
+
+	if cpu.decode.enable {
+		cpu.decode.args = fmt.Sprintf("%02X %02X", low, high)
+		cpu.decode.decodedArgs = fmt.Sprintf("$%04X", result)
+	}
+	return
+}
+
 func (cpu *M6502) Lda(address uint16) {
 	cpu.load(address, &cpu.Registers.Accumulator)
 }
@@ -381,19 +395,17 @@ func (cpu *M6502) controlAddress(opcode OpCode, status *InstructionStatus) (addr
 			address = 0 // Unused
 		case 0x03:
 			address = cpu.absoluteAddress()
-
-		}else {
-
-      switch (opcode >> 2) & 0x03 {
-      case 0x00:
-        address = cpu.immidiateAddress()
-      case 0x01:
-        addres = cpu.zeroPageAddress()
-      case 0x02: 
-        address = 0
-      case 0x03:
-        address = cpu.absoluteAddress()
-    } 
-
+		}
+	} else {
+		switch (opcode >> 2) & 0x03 {
+		case 0x00:
+			address = cpu.immidiateAddress()
+		case 0x01:
+			addres = cpu.zeroPageAddress()
+		case 0x02:
+			address = 0
+		case 0x03:
+			address = cpu.absoluteAddress()
+		}
 	}
 }
