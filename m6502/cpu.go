@@ -57,6 +57,7 @@ func (d *decode) String() string {
 		d.pc, d.opcode, d.args, d.mnemonic, d.decodedArgs, d.registers)
 }
 
+//go:generate stringer -type=Index
 type Interrupt uint8
 
 const (
