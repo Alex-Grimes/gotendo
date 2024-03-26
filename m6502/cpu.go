@@ -389,6 +389,21 @@ func (cpu *M6502) absoluteAddress() (result uint16) {
 	return
 }
 
+func (cpu *M6502) absoluteIndexedAddress(index Index, status *InstructionStatus) (result uint16) {
+  low := cpu.Memory.Fetch(cpu.Registers.ProgramCounter)
+  high := cpu.Memory.Fetch(cpu.Registers.ProgramCounter + 1)
+  cpu.Registers.ProgramCounter += 2
+  address := uint16(high)<<8 | uint16(low)
+  result = address + uint16(cpu.IndexToRegister(index))
+  if status != nil {
+    status |= PageCrossed 
+  if cpu.decode.enable {
+    cpu.decode.args = fmt.Sprintf("%02X %02X", low, high)
+    cpu.decode.decodedArgs = fmt.Sprintf("$%04X,%s @ %04X", address, index.String(), result)
+  }
+  return
+}
+
 func (cpu *M6502) Lda(address uint16) {
 	cpu.load(address, &cpu.Registers.Accumulator)
 }
@@ -414,7 +429,8 @@ func (cpu *M6502) controlAddress(opcode OpCode, status *InstructionStatus) (addr
 		case 0x02:
 			address = 0
 		case 0x03:
-			address = cpu.absoluteAddress()
+			address = cpu.absoluteIndexedAddress(X, status)
 		}
 	}
+  return
 }
