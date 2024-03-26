@@ -2,6 +2,7 @@ package m6502
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Status uint8
@@ -362,9 +363,16 @@ func (cpu *M6502) zeroPageIndexedAddress(index Index) (result uint16) {
 	return
 }
 
-// TODO Build Loader
-func (cpu *M6502) load() {
-	return
+func (cpu *M6502) load(address uint16, register *uint8) {
+	value := cpu.setZNFlags(cpu.Memory.Fetch(address))
+	*register = value
+
+	if cpu.decode.enable {
+		if !strings.HasPrefix(cpu.decode.decodedArgs, "#") && !strings.HasSuffix(cpu.decode.decodedArgs, " = ") {
+			cpu.decode.decodedArgs += fmt.Sprintf(" = ")
+		}
+		cpu.decode.decodedArgs += fmt.Sprintf("%02X", value)
+	}
 }
 
 func (cpu *M6502) absoluteAddress() (result uint16) {
@@ -402,7 +410,7 @@ func (cpu *M6502) controlAddress(opcode OpCode, status *InstructionStatus) (addr
 		case 0x00:
 			address = cpu.immidiateAddress()
 		case 0x01:
-			addres = cpu.zeroPageAddress()
+			address = cpu.zeroPageAddress()
 		case 0x02:
 			address = 0
 		case 0x03:
